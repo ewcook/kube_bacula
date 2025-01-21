@@ -1,0 +1,86 @@
+---
+apiVersion: v1
+data:
+  bacula-fd-conf: |
+    Director {
+      Name = bacula-dir
+      #Password = "vGSx8xNeZhNTNzlj1k5N1NqGN+z8UZfPx5tlXKTgrkBb"         # Console password
+      Password = "9QOnLT1iA0C6fqqV+KsanoXyU1hfWLVTAUe4Rp2c6zaN"          # password for FileDaemon
+      #Password = "M2QzNDUwN2FjMWViZTQ0OWRjMjcyNGY5Z"
+    }
+    #
+    # Restricted Director, used by tray-monitor to get the
+    #   status of the file daemon
+    Director {
+      Name = bacula-mon
+      Password = "@@MON_FD_PASSWORD@@"
+      Monitor = yes
+    }
+
+    #
+    # "Global" File daemon configuration specifications
+    #
+    FileDaemon {                          # this is me
+      Name = bacula-fd
+      FDport = 9102                  # where we listen for the director
+      WorkingDirectory = /opt/bacula/working
+      Pid Directory = /var/run
+      Maximum Concurrent Jobs = 20
+    }
+
+    # Send all messages except skipped files back to Director
+    Messages {
+      Name = Standard
+      director = bacula-dir = all, !skipped, !restored
+    }
+kind: ConfigMap
+metadata:
+  creationTimestamp: null
+  name: bacula-fd-conf
+  namespace: bacula
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: bacula-fd
+  name: bacula-fd
+  namespace: bacula
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bacula-fd
+  template:
+    metadata:
+      labels:
+        app: bacula-fd
+    spec:
+      containers:
+      - image: localhost:32000/bacula:15.0.2
+        name: bacula
+        volumeMounts:
+        - name: bacula-fd-conf
+          mountPath: /usr/local/etc/bacula-fd.conf
+          subPath: bacula-fd-conf
+        command: ["/usr/local/sbin/bacula-fd", "-d", "100", "-f"]
+      volumes:
+        - name: bacula-fd-conf
+          configMap:
+            name: bacula-fd-conf
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: bacula-fd
+  name: bacula-fd
+  namespace: bacula
+spec:
+  ports:
+  - port: 9102
+    protocol: TCP
+    targetPort: 9102
+  selector:
+    app: bacula-fd
+  type: ClusterIP

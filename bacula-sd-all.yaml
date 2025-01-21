@@ -1,0 +1,225 @@
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: bacula-sd-config-pv
+  namespace: bacula
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: hostpath
+  claimRef: 
+    name: bacula-sd-config-pvc
+    namespace: bacula
+  hostPath:
+    path: /data/bacula/sd-config
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bacula-sd-config-pvc
+  namespace: bacula
+spec:
+  storageClassName: hostpath
+  resources:
+    requests:
+      storage: 1Gi
+  accessModes: 
+    - ReadWriteMany
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: bacula-backup-dir-pv
+  namespace: bacula
+spec:
+  capacity:
+    storage: 15Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: hostpath
+  claimRef: 
+    name: bacula-backup-dir-pvc
+    namespace: bacula
+  hostPath:
+    path: /data/bacula/backup
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bacula-backup-dir-pvc
+  namespace: bacula
+spec:
+  storageClassName: hostpath
+  resources:
+    requests:
+      storage: 15Gi
+  accessModes: 
+    - ReadWriteMany
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: bacula-backup-fridge-dir-pv
+  namespace: bacula
+spec:
+  capacity:
+    storage: 11Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: hostpath
+  claimRef:
+    name: bacula-backup-fridge-dir-pvc
+    namespace: bacula
+  hostPath:
+    path: /mybook/fridge/volumes
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bacula-backup-fridge-dir-pvc
+  namespace: bacula
+spec:
+  storageClassName: hostpath
+  resources:
+    requests:
+      storage: 11Gi
+  accessModes: 
+    - ReadWriteMany
+---
+apiVersion: v1
+data:
+  bacula-sd-conf: |
+    Storage {                             # definition of myself
+      Name = buildkitsandbox-sd
+      SDPort = 9103                  # Director's port
+      WorkingDirectory = "/opt/bacula/working"
+      Pid Directory = "/var/run"
+      Plugin Directory = "/usr/local/lib"
+      Maximum Concurrent Jobs = 20
+    }
+
+    #
+    # List Directors who are permitted to contact Storage daemon
+    #
+    Director {
+      Name = bacula-dir 
+      Password = "bXDF7BJ1/li/luKez2wR7QqCINXN1J2rGIVYnlt22fWn"
+    }
+
+    #
+    # Restricted Director, used by tray-monitor to get the
+    #   status of the storage daemon
+    #
+    Director {
+      Name = buildkitsandbox-mon
+      Password = "Cc8np0T8qTx2j4s4+/DEFVD4tHZ+oBz74lnvtiEgsU0U"
+      Monitor = yes
+    }
+
+    Messages {
+      Name = Standard
+      director = buildkitsandbox-dir = all
+    }
+    Device {
+      Name = FileStorage
+      Media Type = File
+      Archive Device = /Backup
+      LabelMedia = yes;                   # lets Bacula label unlabeled media
+      Random Access = Yes;
+      AutomaticMount = yes;               # when device opened, read it
+      RemovableMedia = no;
+      AlwaysOpen = no;
+    }
+    @|"find /usr/local/etc/conf.d -name '*.conf' -type f -exec echo @{} \;" 
+
+kind: ConfigMap
+metadata:
+  creationTimestamp: null
+  name: bacula-sd-conf
+  namespace: bacula
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: bacula-sd
+  name: bacula-sd
+  namespace: bacula
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bacula-sd
+  template:
+    metadata:
+      labels:
+        app: bacula-sd
+    spec:
+      containers:
+      - image: localhost:32000/bacula:15.0.2
+        name: bacula
+        volumeMounts:
+        - name: bacula-sd-conf
+          mountPath: /usr/local/etc/bacula-sd.conf
+          subPath: bacula-sd-conf
+        - name: bacula-backup-dir
+          mountPath: /Backup
+        - name: bacula-backup-fridge-dir
+          mountPath: /Fridge
+        - name: bacula-sd-config-pvc
+          mountPath: /usr/local/etc/conf.d
+        ports:
+          - containerPort: 9103
+        command: ["/usr/local/sbin/bacula-sd", "-d", "100", "-f"]
+      volumes:
+        - name: bacula-sd-conf
+          configMap:
+            name: bacula-sd-conf
+        - name: bacula-backup-dir
+          persistentVolumeClaim:
+            claimName: bacula-backup-dir-pvc
+        - name: bacula-backup-fridge-dir
+          persistentVolumeClaim:
+            claimName: bacula-backup-fridge-dir-pvc
+        - name: bacula-sd-config-pvc
+          persistentVolumeClaim:
+            claimName: bacula-sd-config-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: bacula-sd
+  name: bacula-sd-lb
+  namespace: bacula
+spec:
+  ports:
+  - port: 9103
+    protocol: TCP
+    targetPort: 9103
+  selector:
+    app: bacula-sd
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+    app: bacula-sd
+  name: bacula-sd
+  namespace: bacula
+spec:
+  ports:
+  - port: 9103
+    protocol: TCP
+    targetPort: 9103
+  selector:
+    app: bacula-sd
+  type: ClusterIP
