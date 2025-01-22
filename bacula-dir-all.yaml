@@ -155,7 +155,7 @@ data:
 
     Catalog {
       Name = MyCatalog
-      dbname = "bacula"; dbuser = "bacula"; dbpassword = "techsup@2";
+      dbname = "bacula"; dbuser = "bacula"; dbpassword = "password@2";
       dbaddress = "bacula-postgres"; dbport = "5432"
     }
 
